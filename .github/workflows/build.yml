@@ -1,8 +1,7 @@
-name: "Golang Build & Publish"
+name: "Golang application Build & Publish"
 
 on:
   workflow_dispatch:
-  push:
 
 env:
   # Use docker.io for Docker Hub if empty
@@ -101,12 +100,6 @@ jobs:
           endpoint: ftds
         env:
           DOCKER_CONTEXT: ftds
-      - name: Setup Helm
-        uses: azure/setup-helm@v3
-        with:
-          # version: '<version>' # default is latest (stable)
-          token: ${{ secrets.GITHUB_TOKEN }} # only needed if version is 'latest'
-
       - name: Login to ghcr.io
         uses: docker/login-action@v2
         with:
@@ -151,8 +144,8 @@ jobs:
       - name: Publish Helm chart to GHCR
         run: |
           helm package charts/golang --version ${{ needs.ra_version.outputs.chart_version }}
-          helm push golang-${{ needs.ra_version.outputs.chart_version }}.tgz oci://ghcr.io/ripa-grig/charts
-          rm golang-${{ needs.ra_version.outputs.chart_version }}.tgz
+          helm push golang-demo-${{ needs.ra_version.outputs.chart_version }}.tgz oci://ghcr.io/ripa-grig/charts
+          rm golang-demo-${{ needs.ra_version.outputs.chart_version }}.tgz
       - uses: azure/setup-kubectl@v3
 
       - uses: AbsaOSS/k3d-action@v2
@@ -165,6 +158,7 @@ jobs:
             --agents 1
             --image docker.io/rancher/k3s:v1.24.12-k3s1
             --k3s-arg "--no-deploy=traefik,metrics-server@server:*"
+
       - name: k3d test environment
         run: |
           kubectl get all -A
@@ -173,17 +167,16 @@ jobs:
             --docker-server=https://ghcr.io \
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GHCR_TOKEN }}
-            helm upgrade --install golang-demo -n golang-system  oci://ghcr.io/ripa-grig/charts/golang \
+            helm upgrade --install golang-demo -n golang-system  oci://ghcr.io/ripa-grig/charts/golang-demo \
             --version ${{ needs.ra_version.outputs.chart_version }} \
-            --set image.repository=ghcr.io/ripa-grig/golang \
+            --set image.repository=ghcr.io/ripa-grig/golang-demo \
             --set image.tag=${{ needs.ra_version.outputs.version }} 
           sleep 20
           kubectl get all -A
           kubectl describe deployment golang-demo -n golang-system
           kubectl get pods -n golang-system
           kubectl get secrets -n golang-system
-          
-      - name: Check if deployment is successful
+      - name: Check deployment status
         run: |
           podname=`kubectl get pods -n golang-system  | grep golang-demo | awk '{ print $1 }'`
           avpods=`kubectl get pods -n golang-system  | grep golang-demo | awk '{ print $2 }'`
@@ -192,7 +185,6 @@ jobs:
           echo "UP: $up"
           tries=5
           attempt=0
-          kubectl describe pod $podname -n golang-system
           while [ $up -eq 0 -a $tries -gt $attempt ]; do
             up=`echo $avpods | awk '{split($0, out, "/"); print (out[1] == out[2])}'`
             echo "UP: $up"
@@ -201,16 +193,14 @@ jobs:
             kubectl get pods -n golang-system
           done
 
-          kubectl logs -n golang-system $podname
           if [ $up -eq 0 ]; then
             echo "pod is not ready"
           else
             echo "pod is ready"
             kubectl logs -n golang-system $podname
           fi
-          kubectl get pods -n golang-system
-          helm uninstall golang-demo -n golang-system
 
+          helm uninstall golang-demo -n golang-system
       - name: Create tag and push
         if:  github.ref_name == 'main'
         run: |
