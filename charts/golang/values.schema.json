@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft-07/schema#",
+    "title": "Ra-useroperator Values Schema",
+    "type": "object",
+    "required": [
+        "global",
+        "image"
+    ],
+    "properties": {
+        "global": {
+            "type": "object",
+            "required": [
+                "ra"
+            ],
+            "properties": {
+                "ra": {
+                    "type": "object",
+                    "required": [
+                        "repository"
+                    ],
+                    "properties": {
+                        "repository": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "image": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

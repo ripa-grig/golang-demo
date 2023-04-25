@@ -1,0 +1,89 @@
+# This is a basic workflow to help you get started with Actions
+
+name: RA workfow
+
+# Controls when the workflow will run
+on:
+  workflow_call:    
+
+    outputs:
+      version:
+        value: ${{ jobs.set_versions.outputs.version }}
+      release:
+        value: ${{ jobs.set_versions.outputs.release }}
+      chart_version:
+        value: ${{ jobs.set_versions.outputs.chart_version }}
+
+
+
+
+jobs:
+  set_versions:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set_versions_step.outputs.version }}
+      release: ${{ steps.set_versions_step.outputs.release }}
+      chart_version: ${{ steps.set_versions_step.outputs.chart_version }}
+    steps:
+     
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: app version
+        id: app-version
+        uses: paulhatch/semantic-version@v5.0.2
+        with:
+          tag_prefix: "v"
+          major_pattern: "(MAJOR)"
+          # major_regexp_flags: ""
+          minor_pattern: "(MINOR)"
+          # minor_regexp_flags: ""
+          version_format: "${major}.${minor}.${patch}"
+          bump_each_commit: true
+          change_path: "."
+          
+      - name: chart version     
+        id: chart-version
+        uses: paulhatch/semantic-version@v5.0.2
+        with:
+          tag_prefix: "c"
+          major_pattern: "(MAJOR-CHART)"
+          # major_regexp_flags: ""
+          minor_pattern: "(MINOR-CHART)"
+          # minor_regexp_flags: ""
+          version_format: "${major}.${minor}.${patch}"
+          bump_each_commit: true
+          change_path: "charts"
+
+
+    
+      # Runs a set of commands using the runners shell
+      - name: Set the versions
+        id: set_versions_step
+        run: |
+          suffix=".${{github.run_number}}"
+          if  [ ${{ github.ref_name }} == "main" ]; then
+            suffix=""
+          fi
+          echo "version=${{ steps.app-version.outputs.version }}$suffix" >> $GITHUB_OUTPUT
+          echo "release=${{ steps.app-version.outputs.version_tag }}$suffix" >> $GITHUB_OUTPUT
+          echo "chart_version=${{ steps.chart-version.outputs.version }}$suffix" >> $GITHUB_OUTPUT
+          
+          echo "version=${{ steps.app-version.outputs.version }}$suffix" 
+          echo "release=${{ steps.app-version.outputs.version_tag }}$suffix"
+          echo "chart_version=${{ steps.chart-version.outputs.version }}$suffix"
+          
+     
+      - name: Create tag and push
+        if:  github.ref_name == 'main'
+        run: |
+          rc=0
+          git show-ref --tags ${{ steps.app-version.outputs.version }} --quiet || rc="$?"
+          
+          if  [ $rc -eq 0 ]; then
+            echo "App no changes, skip tagging ${{ steps.app-version.outputs.version }}"
+            
+          else
+            echo "App changed , pushing new version ${{ steps.app-version.outputs.version }} "
+            git tag ${{ steps.app-version.outputs.version }} && git push --tags    
+          fi

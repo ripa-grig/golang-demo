@@ -1,0 +1,6 @@
+####################################################################################
+### Copyright © 2022 Rockwell Automation Technologies, Inc. All Rights Reserved. ###
+####################################################################################
+Release: {{ .Release.Name }} version: {{ .Chart.AppVersion  }}
+Helm chart: {{ .Chart.Name }} version: {{ .Chart.Version  }} successfully installed!
+####################################################################################

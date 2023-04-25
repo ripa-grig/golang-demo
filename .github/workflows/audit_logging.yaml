@@ -1,0 +1,287 @@
+# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
+# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
+name: "Audit Logging Build & Publish"
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  # github.repository as <account>/<repo>
+  IMAGE_NAME: ${{ github.repository }}
+  # npm registry
+  NPM_REGISTRY_FQDN: npm.pkg.github.com
+  # node version
+  NODE_VERSION: 18
+
+jobs:
+  ra_version:
+    name: "Generate versions from common workflow"
+    # uses: ./.github/workflows/ra-versioning.yaml
+    uses: "Rockwell-Automation-FTDS/configuration-cd/.github/workflows/raver.yml@1.3.3"
+
+  build-image:
+    name: Build Image
+    needs: ra_version
+    # runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
+
+    permissions:
+      packages: write
+      actions: read
+      contents: write          # for actions/checkout to fetch code
+      pull-requests: write
+      security-events: write  # for github/codeql-action/upload-sarif to upload SARIF results
+
+    steps:
+      - name: Checkout git repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Setup Cosign
+        uses: sigstore/cosign-installer@main
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Create Docker context
+        run: |
+          docker context create ftds
+          docker context use ftds
+          unset DOCKER_HOST
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          endpoint: ftds
+        env:
+          DOCKER_CONTEXT: ftds
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          # version: '<version>' # default is latest (stable)
+          token: ${{ secrets.GITHUB_TOKEN }} # only needed if version is 'latest'
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          registry-url: https://npm.pkg.github.com/
+
+      # - name: app version
+      #   id: app-version
+      #   uses: paulhatch/semantic-version@v5.0.2
+      #   with:
+      #     tag_prefix: "v"
+      #     major_pattern: "(MAJOR)"
+      #     # major_regexp_flags: ""
+      #     minor_pattern: "(MINOR)"
+      #     # minor_regexp_flags: ""
+      #     version_format: "${major}.${minor}.${patch}"
+      #     bump_each_commit: true
+
+      # - name: chart version
+      #   id: chart-version
+      #   uses: paulhatch/semantic-version@v5.0.2
+      #   with:
+      #     tag_prefix: "c"
+      #     major_pattern: "(MAJOR-CHART)"
+      #     # major_regexp_flags: ""
+      #     minor_pattern: "(MINOR-CHART)"
+      #     # minor_regexp_flags: ""
+      #     version_format: "${major}.${minor}.${patch}"
+      #     bump_each_commit: true
+      #     change_path: "charts"
+      #     namespace: chart
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+      - name: Login to azurecr.io
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.ACR_ENDPOINT }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # Extract metadata (tags, labels) for Docker
+      # https://github.com/docker/metadata-action
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v4.3.0
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ secrets.ACR_ENDPOINT }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=${{ needs.ra_version.outputs.version }}
+      # Build and push Docker image with Buildx (don't push on PR)
+      # https://github.com/docker/build-push-action
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v4.0.0
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NPM_TOKEN=${{ secrets.GHCR_TOKEN }}
+            NODE_VERSION=${{ vars.NODE_VERSION }}
+            PORT=${{ vars.PORT }}
+            REGISTRY_FQDN=${{ env.NPM_REGISTRY_FQDN }}
+      # - name: Run Trivy for all CVEs (non-blocking)
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     # image-ref: ${{ env.REGISTRY }}/rockwell-automation-ftds/utils-demo:${{ needs.ra_version.outputs.version }}
+      #     # image-ref: ftdstaacr.azurecr.io/rockwell-automation-ftds/utils-demo:v0.0.1
+      #     image-ref: ${{ secrets.ACR_ENDPOINT }}/rockwell-automation-ftds/utils-demo:${{ needs.ra_version.outputs.version }}-${{github.run_number}}
+      #     exit-code: 0
+      #     format: table
+      #   env:
+      #     TRIVY_USERNAME: ${{ secrets.ACR_USERNAME }}
+      #     TRIVY_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+      #     # TRIVY_USERNAME: ${{ github.actor }}
+      #     # TRIVY_PASSWORD: ${{ secrets.PUSH_TOKEN }}
+      # - name: Run Trivy for HIGH,CRITICAL CVEs and report (blocking)
+      #   id : trivy
+      #   uses: aquasecurity/trivy-action@master
+      #   with:
+      #     image-ref: ${{ secrets.ACR_ENDPOINT }}/rockwell-automation-ftds/utils-demo:${{ needs.ra_version.outputs.version }}-${{github.run_number}}
+      #     exit-code: 1
+      #     ignore-unfixed: true
+      #     vuln-type: 'os,library'
+      #     severity: 'HIGH,CRITICAL'
+      #     format: 'sarif'
+      #     output: 'trivy-results.sarif'
+      #   env:
+      #     TRIVY_USERNAME: ${{ secrets.ACR_USERNAME }}
+      #     TRIVY_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+
+      # # requires github license
+      # - name: Upload Trivy scan results to GitHub Security tab
+      #   uses: github/codeql-action/upload-sarif@v2
+      #   if: steps.trivy.outputs.exit_code == 0
+      #   with:
+      #     sarif_file: 'trivy-results.sarif'
+
+      # Comment
+
+      # Sign the resulting Docker image digest except on PRs.
+      # This will only write to the public Rekor transparency log when the Docker
+      # repository is public to avoid leaking data.  If you would like to publish
+      # transparency data even for private images, pass --force to cosign below.
+      # https://github.com/sigstore/cosign
+      # - name: Sign the published Docker image
+      #   if: github.event_name != 'pull_request'
+      #   env:
+      #     COSIGN_EXPERIMENTAL: "true"
+      #   # This step uses the identity token to provision an ephemeral certificate
+      #   # against the sigstore community Fulcio instance.
+      #   run: echo "${{ steps.meta.outputs.tags }}" | xargs -I {} cosign sign {}@${{ steps.build-and-push.outputs.digest }}
+
+      - name: Publish Helm chart to GHCR
+        run: |
+          helm package charts/auditlogging --version ${{ needs.ra_version.outputs.chart_version }}
+          helm push auditlogging-${{ needs.ra_version.outputs.chart_version }}.tgz oci://ghcr.io/rockwell-automation-ftds/charts
+          rm auditlogging-${{ needs.ra_version.outputs.chart_version }}.tgz
+      - uses: azure/setup-kubectl@v3
+
+      - uses: AbsaOSS/k3d-action@v2
+        with:
+          cluster-name: "gha-cluster"
+          args: >-
+            -p "8083:80@agent:0:direct"
+            -p "8443:443@agent:0:direct"
+            -p "5053:53/udp@agent:0:direct"
+            -p "25012:25012/udp@agent:0:direct"
+            --agents 1
+            --image docker.io/rancher/k3s:v1.24.12-k3s1
+            --k3s-arg "--no-deploy=traefik,metrics-server@server:*"
+#   --no-lb
+#   --k3s-arg "--no-deploy=traefik,servicelb,metrics-server@server:*"
+
+      - name: k3d test environment
+        run: |
+          kubectl get all -A
+          kubectl create namespace app
+          kubectl create secret docker-registry ra-creg -n app \
+            --docker-server=https://ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GHCR_TOKEN }}
+          # helm template auditlogging oci://ghcr.io/rockwell-automation-ftds/charts/auditlogging \
+          #   --version ${{ needs.ra_version.outputs.chart_version }} \
+          #   --set image.repository=ghcr.io/rockwell-automation-ftds/ra-audit-logging \
+          #   --set image.tag=${{ needs.ra_version.outputs.version }} -n app | kubectl apply -n app -f -
+          helm upgrade --install auditlogging -n app  oci://ghcr.io/rockwell-automation-ftds/charts/auditlogging \
+          --version ${{ needs.ra_version.outputs.chart_version }} \
+          --set image.repository=ghcr.io/rockwell-automation-ftds/ra-audit-logging \
+          --set image.tag=${{ needs.ra_version.outputs.version }} \
+          --set service.type=LoadBalancer
+          sleep 15
+          kubectl describe svc auditlogging -n app
+          kubectl describe deploy auditlogging -n app
+          kubectl get all -A
+          kubectl rollout status deployment auditlogging -n app
+      - name: Run service integration tests.
+        run:  |
+          podname=`kubectl get pods -n app  | grep auditlogging | awk '{ print $1 }'`
+          avpods=`kubectl get pods -n app  | grep auditlogging | awk '{ print $2 }'`
+          up=`echo $avpods | awk '{split($0, out, "/"); print (out[1] == out[2])}'`
+          echo "POD: $avpods"
+          echo "UP: $up"
+          kubectl logs -n app $podname
+          [[ $up -eq 0 ]] && echo "Aborting kube is not ready" && exit 1
+          export NODE_AUTH_TOKEN=${{ secrets.GHCR_TOKEN }}
+          cd ./service/e2e-api
+          npm i
+          npm run test
+      - name: Create tag and push
+        if:  github.ref_name == 'main'
+        run: |
+          rc=0
+          git show-ref --tags ${{ needs.ra_version.outputs.version }} --quiet || rc="$?"
+          if  [ $rc -eq 0 ]; then
+            echo "App no changes, skip tagging ${{ needs.ra_version.outputs.version }}"
+          else
+            echo "App changed , pushing new version ${{ needs.ra_version.outputs.version }} "
+            git tag ${{ needs.ra_version.outputs.version }} && git push --tags
+          fi
+      # - name: app release
+      #   if:  github.ref_name == 'main'
+      #   uses: Roang-zero1/github-create-release-action@master
+      #   with:
+      #     created_tag: "${{ needs.ra_version.outputs.version_tag }}"
+      #   env:
+      #     GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        if:  github.ref_name == 'main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.ra_version.outputs.version }}
+          release_name: Release ${{ needs.ra_version.outputs.release }}
+          draft: false
+          prerelease: false
+
+      # - name: Create Release
+      #   id: create_release
+      #   uses: actions/create-release@v1
+      #   if:  github.ref_name == 'main'
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   with:
+      #     tag_name: ${{ needs.ra_version.outputs.version }}
+      #     release_name: Release ${{ needs.ra_version.outputs.version_tag }}
+      #     draft: false
+      #     prerelease: false

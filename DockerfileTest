@@ -1,0 +1,28 @@
+ARG GO_ALPINE_VERSION
+
+# Build the manager binary
+FROM golang:${GO_ALPINE_VERSION} as builder
+# RUN apt-get update && \
+# apt-get install -y xvfb wkhtmltopdf ghostscript
+WORKDIR /go/testdir
+ENV CGO_ENABLED=0  
+ENV GOARCH=amd64
+
+# Copy the Go Modules manifests in case you need to run tests in the container and not mount the working directory.
+# Uncomment lines 54-27, build docker image and run "docker run ${imageName}:latest" with your image name.
+# docker builder build --file Dockerfile  --build-arg "GO_ALPINE_VERSION=1.20.2-alpine3.17" --build-arg "ALPINE_VERSION=3.17.3" --build-arg "ARTIFACTORY_FQDN=raiderartifacts.ra.rockwell.com" --tag imageName
+# COPY go.mod go.mod
+# COPY go.sum go.sum
+# RUN go mod download
+
+# Copy the go source
+# COPY main.go main.go
+# COPY api/ api/
+# COPY controllers/ controllers/
+# COPY model/ model/
+# COPY utils/ utils/
+# COPY gitlab/ gitlab/
+# COPY security/ security/
+# COPY errors/ errors/
+
+ENTRYPOINT ["go", "test", "-v", "./...", "-coverprofile", "cover.out"]

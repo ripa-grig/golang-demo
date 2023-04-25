@@ -1,0 +1,58 @@
+# Default values for ra-useroperator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+global:
+  config:
+    enabled: true
+    configmap: "global-config"
+    path: "/app/global"
+  ra:
+    repository: raiderartifacts.ra.rockwell.com/raider-docker-dev
+    production: true
+  deploymentMode: cloud
+  
+image:
+  repository: ripa1986/golangdemo
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imageConfig:
+  pullPolicy: IfNotPresent
+imagePullSecrets: [name: ra-creg]
+
+config:
+  enabled: true
+  configmap: ra-user-operator-configmap
+  path: "/app/config"
+
+
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop: ["AUDIT_WRITE","SYS_CHROOT"]
+
+podSecurityContext: {}
+
+nodeSelector:
+  "kubernetes.io/os": linux
+affinity:
+  nodeAffinity:     
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 1
+      preference:
+        matchExpressions:
+        - key: kubernetes.azure.com/agentpool
+          operator: NotIn
+          values:
+          - linuxnpwks
+
+retryPolicy:
+  externalCallsNumberOfAttempts: 3
+  externalCallsWaitTime: 10000
+  k8sCallsNumberOfAttempts: 50
+  k8sCallsWaitTime: 100
