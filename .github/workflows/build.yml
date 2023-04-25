@@ -19,7 +19,6 @@ jobs:
       contents: write
 
     name: "Generate versions from common workflow"
-    # uses: "Rockwell-Automation-FTDS/configuration-cd/.github/workflows/raver.yml@1.3.3"
     uses: "./.github/workflows/raver.yml"
 
   run-unit-tests:
