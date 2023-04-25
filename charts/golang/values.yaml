@@ -1,15 +1,6 @@
-# Default values for ra-useroperator.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
-global:
-  config:
-    enabled: true
-    configmap: "global-config"
-    path: "/app/global"
-  ra:
-    repository: raiderartifacts.ra.rockwell.com/raider-docker-dev
-    production: true
-  deploymentMode: cloud
+
   
 image:
   repository: ripa1986/golangdemo
@@ -51,8 +42,3 @@ affinity:
           values:
           - linuxnpwks
 
-retryPolicy:
-  externalCallsNumberOfAttempts: 3
-  externalCallsWaitTime: 10000
-  k8sCallsNumberOfAttempts: 50
-  k8sCallsWaitTime: 100

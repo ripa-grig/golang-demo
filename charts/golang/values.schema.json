@@ -3,7 +3,6 @@
     "title": "Ra-useroperator Values Schema",
     "type": "object",
     "required": [
-        "global",
         "image"
     ],
     "properties": {
